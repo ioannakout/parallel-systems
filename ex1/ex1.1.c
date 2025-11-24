@@ -3,13 +3,14 @@
 #include <pthread.h>
 #include <time.h>
 
-int *pol1 , *pol2, *result_serial, *result_parallel;
+int *pol1 , *pol2;
+long long *result_serial, *result_parallel;
 long thread_count;
 int n ; //βαθμος πολυωνυμου
-int **local_results;
+long long **local_results;
 
 int random_coef(){
-    int r = rand() + 1;
+    int r = rand()%10 + 1;// για νσ μην εχω τεραστια νουμερα
     if(rand()%2 == 1) r = -r ;
     return r;
 }
@@ -23,7 +24,7 @@ void random_pol(int degree,int *pol){
 void serial_execution(){
     for(int i = 0; i <= n; i++){
         for(int j = 0; j <= n; j++){
-            result_serial[i +j] += pol1[i] * pol2[j];
+            result_serial[i +j] +=(long long)pol1[i] * pol2[j];
         }
     }
 
@@ -32,21 +33,25 @@ void serial_execution(){
 
 void* parallel_execution(void* rank ) {
     long my_rank = (long) rank;
+    int total_elements = n + 1;
+
+    int my_start = my_rank * total_elements / thread_count;
+    int my_end = (my_rank + 1) * total_elements / thread_count;
     
-    int local_n = (n + 1) / thread_count;
-    int my_start = my_rank * local_n;
-    int my_end = my_start + local_n - 1;
-    if (my_end > n) my_end = n;
+     long long* local_result = local_results[my_rank];
 
-    int* local_result = local_results[my_rank];
-
-    for(int i = my_start; i <= my_end; i ++){
+    for(int i = my_start; i < my_end; i ++){
         for( int j = 0; j <= n; j++){
             
-            local_result[i + j] += pol1[i] * pol2[j];
+            local_result[i + j] +=(long long) pol1[i] * pol2[j];
         }
     }
     return NULL;
+}
+
+double get_time_diff(struct timespec start, struct timespec end) {
+    // Η διαίρεση με το 1e9 (1.000.000.000) μετατρέπει τα nanoseconds σε δευτερόλεπτα
+    return (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
 }
 
 
@@ -58,56 +63,71 @@ int main(int argc, char *argv[]){
 
     n = atoi(argv[1]);
     thread_count = strtol(argv[2], NULL, 10);
+    srand(time(NULL));
     
 
     pol1 = malloc((n+1)*sizeof(int));
     pol2 = malloc((n+1)*sizeof(int));
-    result_serial = calloc((2*n + 1 ),sizeof(int));
-    result_parallel = calloc((2*n + 1),sizeof(int));
+    result_serial = calloc((2*n + 1 ),sizeof(long long));
+    result_parallel = calloc((2*n + 1),sizeof(long long));
+
+    struct timespec start,end;
+    //initialization start
+    clock_gettime(CLOCK_MONOTONIC, &start);
 
     random_pol(n, pol1);
     random_pol(n, pol2);
 
-    if( thread_count == 0) serial_execution();
-    else{
-            pthread_t* thread_handles;
-            thread_handles = malloc(thread_count*sizeof(pthread_t));
-
-            local_results = malloc(thread_count * sizeof(int*));
-            for(long i = 0; i < thread_count; i++){
-                local_results[i] = calloc(2*n + 1, sizeof(int));
-            }
-
-            for(long i = 0; i < thread_count; i++){
-                pthread_create(&thread_handles[i], NULL, parallel_execution, (void*)i);
-            }
-
-            for(long i = 0; i < thread_count; i ++){
-                pthread_join(thread_handles[i], NULL);
-            }
-
-            for(int i = 0; i <= 2*n; i++){
-                for(long t = 0; t < thread_count; t++){
-                    result_parallel[i] += local_results[t][i];
-                }
-            }
-            for(long t = 0; t < thread_count; t++) free(local_results[t]);
             
-            printf("the result with serial execution:\n");
-            for(int i = 0; i <= 2*n; i++ ){
-                printf("%d", result_serial[i]);
-            }
-            printf("\n");
+    pthread_t* thread_handles;
+    thread_handles = malloc(thread_count*sizeof(pthread_t));
 
-            printf("the result with parallel execution:\n");
-            for(int i = 0; i <=2*n; i++){
-                printf("%d", result_parallel[i]);
-            }
-            printf("\n");
-            free(local_results);
-            free(thread_handles);
+    local_results = malloc(thread_count * sizeof(long long*));
+    for(long i = 0; i < thread_count; i++){
+        local_results[i] = calloc(2*n + 1, sizeof(long long));
+    }
+    //initialization end
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    printf("initialization time: %.6f seconds\n", get_time_diff(start, end));
 
+    clock_gettime(CLOCK_MONOTONIC, &start); //serial execution
+    serial_execution();
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    printf("Serial execution time: %.6f seconds\n", get_time_diff(start, end));
+
+    //start of parallel execution
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    for(long i = 0; i < thread_count; i++){
+        pthread_create(&thread_handles[i], NULL, parallel_execution, (void*)i);
+    }
+
+    for(long i = 0; i < thread_count; i ++){
+        pthread_join(thread_handles[i], NULL);
+    }
+
+    for(int i = 0; i <= 2*n; i++){
+        for(long t = 0; t < thread_count; t++){
+            result_parallel[i] += local_results[t][i];
         }
+    }
+    //end of parallel execution
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    printf("Parallel execution time: %.6f seconds\n", get_time_diff(start, end));
+
+    int errors = 0;
+    for (int i = 0; i <= 2 * n; i++) {
+        if (result_serial[i] != result_parallel[i]) {
+            errors++;
+            if (errors == 1) printf("First Error at index %d: Serial=%lld, Parallel=%lld\n", i, result_serial[i], result_parallel[i]);
+        }
+    }
+    if (errors == 0) printf("Verification SUCCESSFUL!\n");
+    else printf("Verification FAILED with %d errors.\n", errors);
+            
+    for (long t = 0; t < thread_count; t++) free(local_results[t]);
+    free(local_results);
+    free(thread_handles);
     free(pol1);
     free(pol2);
     free(result_serial);
