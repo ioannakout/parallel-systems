@@ -4,9 +4,9 @@
 #include <time.h>
 
 int thread_count;
-int n;
+int n;//number of times the barrier will be reused
 
-int counter = 0;
+int counter = 0;//counter to track how many threads have arrived at the barrier so far.
 volatile int shared_flag = 0;
 pthread_mutex_t barrier_mutex;
 

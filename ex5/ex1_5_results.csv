@@ -1,0 +1,19 @@
+Method,Threads,Repeats,Time (s)
+Pthread Barrier,2,100000,0.21140799999999998
+Pthread Barrier,4,100000,0.4311245
+Pthread Barrier,8,100000,0.9285085
+Pthread Barrier,2,1000000,2.08268
+Pthread Barrier,4,1000000,4.23732575
+Pthread Barrier,8,1000000,9.3200145
+Cond Var Barrier,2,100000,0.36602674999999996
+Cond Var Barrier,4,100000,0.7258182500000001
+Cond Var Barrier,8,100000,1.7425065000000002
+Cond Var Barrier,2,1000000,3.64764425
+Cond Var Barrier,4,1000000,7.2241085
+Cond Var Barrier,8,1000000,17.33237025
+Sense Reversal,2,100000,0.02524125
+Sense Reversal,4,100000,0.28406925
+Sense Reversal,8,100000,0.0
+Sense Reversal,2,1000000,0.22993475
+Sense Reversal,4,1000000,2.704873
+Sense Reversal,8,1000000,0.0
