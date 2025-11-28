@@ -2,13 +2,15 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <time.h>
-
+//global variables
 int thread_count;
-int n;
+int n;//iterations
 
 int counter = 0;//counts how many threads have reached the barrier
 pthread_mutex_t barrier_mutex;
 pthread_cond_t barrier_cond;
+
+int thread_cycle = 0; //it ensures the barrier is safely reusable without race conditions
 //function ot measure time
 double get_time_diff(struct timespec start, struct timespec end) {
     return (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
@@ -17,13 +19,16 @@ double get_time_diff(struct timespec start, struct timespec end) {
 void barrier_wait(){
     //enter critical section
     pthread_mutex_lock(&barrier_mutex);
+    int my_cycle = thread_cycle;//locally store which cycle the thread entered
     counter++;
     if (counter == thread_count){//last thread
         counter = 0;
+        thread_cycle++;
         pthread_cond_broadcast(&barrier_cond);
     } else{
-        //wait here until the last thread signals.
-        while (pthread_cond_wait(&barrier_cond, &barrier_mutex) != 0);
+        //wait here only while the cycle hasn't changed
+        while (my_cycle == thread_cycle){
+            pthread_cond_wait(&barrier_cond, &barrier_mutex);}
     }
     //leave critical section
     pthread_mutex_unlock(&barrier_mutex);
@@ -32,6 +37,7 @@ void barrier_wait(){
 
 void* thread_work(void* rank){
     long my_rank = (long) rank;
+    (void)my_rank;//for unused variable warning
     for(int i = 0; i < n; i++) barrier_wait();
 
     return NULL;

@@ -15,6 +15,7 @@ double get_time_diff(struct timespec start, struct timespec end) {
 ///threads wait for each other at every loop step
 void* Thread_work(void* rank){
     long my_rank = (long) rank;
+    (void)my_rank;//for unused variable warning
 
     for(int i = 0; i < n; i++){
         int result = pthread_barrier_wait(&barrier);
