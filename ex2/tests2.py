@@ -3,35 +3,36 @@ import re
 import sys
 import os
 import matplotlib.pyplot as plt
+import statistics
 
-# Files to compile and execute
+# ---------------- CONFIGURATION ----------------
 C_SOURCE_FILE = "ex1.2.c"
 EXECUTABLE = "./ex1.2"
 
-# The different testing threads and number of iterations per thread
+# Running for different thread count and iterations per each thread
 THREAD_COUNTS = [1, 2, 4, 8, 16]
 ITERATION_COUNTS = [1_000_000, 5_000_000, 10_000_000]
 
-# The three different methods that the code runs on
+# The locks the exercise is running on and the number of times it will run to find the average speed
 METHODS = ["Mutex", "RWLock", "Atomic"]
+NUM_RUNS = 4
 
-# Compile C
+# Compiling the .c code
 def compile_c_code():
-    # Compile with the right flags
+    print("Compiling C code...")
+
+    # Command to compile the code in the terminal
     cmd = ["gcc", "-g", "-Wall", "-o", EXECUTABLE, C_SOURCE_FILE, "-lpthread"]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-
-    # If the code could not be compiled
-    if result.returncode != 0:
-        print("Compile error:")
-        print(result.stderr)
+    result = subprocess.run(cmd, capture_output=True, text=True) # Running the command
+    if result.returncode != 0: # Fail case
+        print("Compile error:", result.stderr)
         sys.exit(1)
+    print("Compilation successful.\n")
 
-
+# Parse
 def parse_output(output):
     results = {}
-    pattern = re.compile(r'\[(.*?)\s*\].*?Χρόνος:\s*([\d\.]+)\s*sec')
-
+    pattern = re.compile(r'\[(.*?)\s*\].*?Time:\s*([\d\.]+)\s*sec')
     for line in output.splitlines():
         match = pattern.search(line)
         if match:
@@ -40,80 +41,144 @@ def parse_output(output):
             results[method] = time_sec
     return results
 
-
-# Run the different tests initialized above
+# Benchmark
 def run_benchmark():
-    all_results = {method: {} for method in METHODS}
 
-    print(f"{'Threads':<8} | {'Iterations':<12} | {'Method':<10} | Time")
+    final_data = {m: {t: {} for t in THREAD_COUNTS} for m in METHODS}
+    
+    # Total time the program will run on every thread
+    total_steps = len(ITERATION_COUNTS) * len(THREAD_COUNTS) * NUM_RUNS
+    current_step = 0
+    print(f"Starting Benchmark ({NUM_RUNS} runs per config)...")
 
-    # Nested for loop so each thread count runs on all different iterations
+    # For all iterations and for all the threads
     for iters in ITERATION_COUNTS:
         for threads in THREAD_COUNTS:
+            # Store temporary variable
+            temp_times = {m: [] for m in METHODS}
 
-            cmd = [EXECUTABLE, str(threads), str(iters)]
-            proc = subprocess.run(cmd, capture_output=True, text=True)
+            # Running the test 4 times
+            for r in range(NUM_RUNS):
+                current_step += 1   # Change the step
+                print(f"\rProgress: {current_step}/{total_steps} (T:{threads}, N:{iters}, Run:{r+1})", end='', flush=True)
 
-            if proc.returncode != 0:
-                print("ERROR:", proc.stderr)
-                continue
+                # Run the code for each count of thread and iteration count
+                cmd = [EXECUTABLE, str(threads), str(iters)]
+                proc = subprocess.run(cmd, capture_output=True, text=True)
 
-            parsed = parse_output(proc.stdout)
+                if proc.returncode != 0: # Fail check
+                    continue
 
-            for method, time_val in parsed.items():
-                print(f"{threads:<8} | {iters:<12} | {method:<10} | {time_val:.4f}s")
+                # Parse the answer
+                parsed = parse_output(proc.stdout)
 
-                if iters not in all_results[method]:
-                    all_results[method][iters] = []
-                all_results[method][iters].append(time_val)
+                for m, t_val in parsed.items():
+                    if m in temp_times:
+                        temp_times[m].append(t_val)
 
-    return all_results
+            
+            for m in METHODS:
+                if temp_times[m]:
+                    avg = statistics.mean(temp_times[m])
+                    final_data[m][threads][iters] = avg
 
+    print("\nBenchmark completed.\n")
+    return final_data
 
-# Creating a plot for each method used
-def plot_per_method(all_results):
+# Combined Table
+def save_combined_table_image(data):
+    """
+    Creates an image that stores 2d-arrays (Iterations per Thread, Amount of threads) that stores
+    the time it took for the proccess to finish on each cell for all the methods the excercise runs on. 
+    """
+    # Figure with 3 subplots and 1 column
+    # Increase height for breathing room
+    fig, axes = plt.subplots(len(METHODS), 1, figsize=(10, 12))
+    
+    # In case there is only 1 method, then this 1 variable would not be a list, so we make it so it is one for the plot
+    if len(METHODS) == 1:
+        axes = [axes]
+
+    fig.suptitle(f"Execution Time Comparison (Average of {NUM_RUNS} runs)", fontsize=16, y=0.98)
+
+    # Column names
+    col_labels = [str(x) for x in ITERATION_COUNTS]
+
+    # For each method available
+    for i, method in enumerate(METHODS):
+        ax = axes[i]
+        ax.axis('off')
+
+        # Prepare the data for the array
+        row_labels = []
+        cell_text = []
+        for t in THREAD_COUNTS:
+            row_labels.append(f"{t} threads")
+            row_data = []
+            for iters in ITERATION_COUNTS:
+                val = data[method][t].get(iters, 0.0)
+                row_data.append(f"{val:.4f}")
+            cell_text.append(row_data)
+
+        # Array title
+        ax.set_title(f"Method: {method}", fontsize=12, fontweight='bold', loc='center')
+
+        # Create the array
+        table = ax.table(cellText=cell_text,
+                         rowLabels=row_labels,
+                         colLabels=col_labels,
+                         loc='center',
+                         cellLoc='center')
+        
+        table.auto_set_font_size(False)
+        table.set_fontsize(10)
+        table.scale(1, 1.5)
+
+    # Adjust distance to avoid array collision
+    plt.tight_layout(rect=[0, 0, 1, 0.96]) 
+    
+    # Name it and save it in the directory
+    filename = "comparison_table.png"
+    plt.savefig(filename, bbox_inches='tight', dpi=150)
+    plt.close()
+
+# Time vs Thread
+def plot_time_vs_threads(data):
+
+    # For all the methods available
     for method in METHODS:
-        plt.figure()
-        for iterations in ITERATION_COUNTS:
-            times = all_results[method][iterations]
-            plt.plot(THREAD_COUNTS, times, marker="o", label=f"{iterations} iters")
 
-        plt.title(f"{method} – Time per thread")
-        plt.xlabel("Threads")
-        plt.ylabel("Time (sec)")
+        # Start drawing
+        plt.figure(figsize=(10, 6))
+
+        # For the different iterations per thread chosen
+        for iters in ITERATION_COUNTS:
+            times = [] # Empty list
+            for t in THREAD_COUNTS: # Run for all thread counts
+                times.append(data[method][t][iters]) # Append each value
+            plt.plot(THREAD_COUNTS, times, marker='o', label=f"{iters} iters")
+
+        # Create the graph
+        plt.title(f"Execution Time vs Threads ({method})")
+        plt.xlabel("Number of Threads")
+        plt.ylabel("Time (seconds)")
         plt.legend()
-        plt.grid(True)
-        plt.savefig(f"plot_{method}.png")
-        print(f"Saved plot: plot_{method}.png")
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.xticks(THREAD_COUNTS)
+        plt.savefig(f"plot_time_{method}.png")
         plt.close()
 
-
-# Comparison on each method for each fixed iteration
-def plot_comparison_fixed_iters(all_results):
-    for iterations in ITERATION_COUNTS:
-        plt.figure()
-
-        for method in METHODS:
-            times = all_results[method][iterations]
-            plt.plot(THREAD_COUNTS, times, marker="o", label=method)
-
-        plt.title(f"Comparison – {iterations} iterations per thread")
-        plt.xlabel("Threads")
-        plt.ylabel("Time (sec)")
-        plt.legend()
-        plt.grid(True)
-        plt.savefig(f"compare_{iterations}.png")
-        print(f"Saved: compare_{iterations}.png")
-        plt.close()
-
-
+# Run main
 if __name__ == "__main__":
     if not os.path.exists(C_SOURCE_FILE):
-        print(f"File {C_SOURCE_FILE} doesn't exist.")
+        print(f"Error: {C_SOURCE_FILE} not found.")
         sys.exit(1)
 
     compile_c_code()
     results = run_benchmark()
 
-    plot_per_method(results)
-    plot_comparison_fixed_iters(results)
+    # Combined table fo precise time comparison
+    save_combined_table_image(results)
+
+    # Plots that showcase each locks different speed-up or slow-down
+    plot_time_vs_threads(results)
