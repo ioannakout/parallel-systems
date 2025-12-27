@@ -85,7 +85,7 @@ int main(int argc, char* argv[]){
     }
     printf("verification: %s\n", correct ? "SUCCESS" : "FAILED");
 
-    //free allocates memory
+    //free memory
     free(pol1); 
     free(pol2); 
     free(result_serial); 
