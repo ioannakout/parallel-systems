@@ -58,22 +58,27 @@ int main(int argc, char* argv[]){
     result_parallel = calloc((2*n + 1),sizeof(long long));
 
     srand(time(NULL));
+
+    double start_pol = omp_get_wtime();
     random_pol(n, pol1);
     random_pol(n, pol2);
+    double end_pol = omp_get_wtime();
+    double time_pol = end_pol - start_pol;
+    printf("initialization time of polynomials: %f seconds\n", time_pol);
 
     //measuring time in serial execution
     double start_serial = omp_get_wtime();
     serial_execution();
     double end_serial = omp_get_wtime();
     double time_serial = end_serial - start_serial;
-    printf("serial Time: %f seconds\n", time_serial);
+    printf("serial time: %f seconds\n", time_serial);
 
     // measuring time in parallel execution
     double start_parallel = omp_get_wtime();
     parallel_execution();
     double end_parallel = omp_get_wtime();
     double time_parallel = end_parallel - start_parallel;
-    printf("parallel Time: %f seconds\n", time_parallel);
+    printf("parallel time: %f seconds\n", time_parallel);
 
     //correctness check
     int correct = 1;
