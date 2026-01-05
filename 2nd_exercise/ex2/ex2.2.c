@@ -3,13 +3,12 @@
 #include <omp.h>
 #include <time.h>
 
-#define MAX_VALUE 1000
+#define MAX_VALUE 100
 
 typedef long long ll;
 int thread_count;
 
 void fill_array(int** array, ll n, float sparsity) {
-
     // Loop over the whole array
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < n; j++) {
@@ -28,7 +27,7 @@ void fill_array(int** array, ll n, float sparsity) {
     }
 }
 
-void create_CSR(int* values, int* rows, int* cols, int** array, int thread_count, ll n) {  
+void create_csr(int* values, int* rows, int* cols, int** array, ll n) {  
 
     // Loop over all the rows and columns and count every rows non-zero elements
     # pragma omp parallel for num_threads(thread_count) \
@@ -74,6 +73,44 @@ void create_CSR(int* values, int* rows, int* cols, int** array, int thread_count
 
 }
 
+void create_vector(int* vector, int n) {
+    for (int i = 0; i < n; i++) {
+        vector[i] = rand() % MAX_VALUE;
+    }
+}
+
+void csr_vector_multiplication(int* vector, int* values, int* rows, int* cols, ll* resultCSR, int n) {
+    // Multiplicate CSR with the vector using parallel threads
+    #pragma omp parallel for num_threads(thread_count) \
+        schedule(static)
+    for (int i = 0; i < n; i++) {
+
+        int startRow = rows[i];
+        int endRow = rows[i+1];
+
+        int sum = 0;
+
+        for (int k = startRow; k < endRow; k++)
+            sum += values[k] * vector[cols[k]];
+
+        resultCSR[i] = sum;
+    }
+}
+
+void dense_vector_multiplication(int** array, int* vector, ll* resultDense, int n) {
+    // Multiplicate Dense array with the vector using parallel threads
+    #pragma omp parallel for schedule(static)
+    for (int i = 0; i < n; i++) {
+
+        int sum = 0;
+
+        for (int j = 0; j < n; j++) {
+            sum += array[i][j] * vector[j];
+        }
+        resultDense[i] = sum;
+    }
+}
+
 int main(int argc, char* argv[]) {
 
     // Check if the 
@@ -88,7 +125,7 @@ int main(int argc, char* argv[]) {
     // Extract values given from user
     ll n = atoll(argv[1]);
     float sparsity = atof(argv[2]);
-    ll loopCount = atoll(argv[3]);
+    int loopCount = atoll(argv[3]);
     thread_count = atoi(argv[4]);
 
     if (sparsity > 100) {
@@ -127,7 +164,14 @@ int main(int argc, char* argv[]) {
     // Creating dense array
     fill_array(array, n, sparsity);
 
-    // Allocating memory for the CSR
+    // Allocate memory for the vector
+    int* vector = malloc(sizeof(ll) * n);
+
+    // Creating the vector
+    create_vector(vector, n);
+
+
+    // Allocating memory for the CSR (we assume for simplicity they will be full)
     int* values = malloc(sizeof(int) * n * n);
     int* rows = malloc(sizeof(int) * (n + 1));
     int* cols = malloc(sizeof(int) * n * n);
@@ -139,14 +183,38 @@ int main(int argc, char* argv[]) {
 
     // Create and time the creation of the CSR representation
     double startTime = omp_get_wtime();
-    create_CSR(values, rows, cols, array, thread_count, n);
+    create_csr(values, rows, cols, array, n);
     double endTime = omp_get_wtime();
     printf("CSR creation took %f seconds\n", endTime - startTime);
 
+    // Reallocating memory to resize the arrays to their intended size (Cutback on memory allocated especially for high sparsity)
+    values = realloc(values, sizeof(int) * rows[n]);
+    cols = realloc(cols, sizeof(int) * rows[n]);
+
+    // Allocate memory to save the results of the multiplication and time it
+    ll* resultCSR = malloc(sizeof(ll) * n);
+    startTime = omp_get_wtime();
+    for (int i = 0; i < loopCount; i ++)    // Loop over the number given by the user
+        csr_vector_multiplication(vector, values, rows, cols, resultCSR, n);
+    endTime = omp_get_wtime();
+    printf("CSR multiplication with a vector over %d loops took %f seconds\n", loopCount, endTime - startTime);
+
+    ll* resultDense = malloc(sizeof(ll) * n);
+    startTime = omp_get_wtime();
+    for (int i = 0; i < loopCount; i ++)    // Loop over the number given by the user
+        dense_vector_multiplication(array, vector, resultDense, n);
+    endTime = omp_get_wtime();
+    printf("Dense multiplication with a vector over %d loops took %f seconds\n", loopCount, endTime - startTime);
+
     // Free the allocated memory
+    free(vector);
+    free(resultCSR);
+    free(resultDense);
+
     free(values);
     free(rows);
     free(cols);
+
     free(memAssist);
     free(array);
     
