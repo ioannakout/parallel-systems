@@ -1,138 +1,130 @@
 import subprocess
 import re
-import pandas as pd
 import matplotlib.pyplot as plt
 import os
-import numpy as np
 import sys
 
-# --- Ρυθμίσεις ---
-C_FILENAME = "ex2.3.c"
-EXECUTABLE = "ex2.3"
-if os.name == 'nt': 
-    EXECUTABLE += ".exe"
+# --- ΡΥΘΜΙΣΕΙΣ ---
+# Προσθέσαμε ενδιάμεσα βήματα για να βγει ωραία η καμπύλη στο γράφημα N vs Time
+DATA_SIZES = [10000000, 20000000, 50000000, 100000000] 
+THREAD_COUNTS = [1, 2, 4, 8]
+REPETITIONS = 4  # 3 επαναλήψεις είναι αρκετές για τόσο βαριά πειράματα
 
-# Μεγέθη Πινάκων (Δοκιμάζουμε 10^7 και 5*10^7)
-DATA_SIZES = [10000000, 50000000] 
+SRC_FILE = "ex2.3.c"
+EXE_FILE = "mergesort_prog"
 
-THREADS = [1, 2, 4, 8]
-REPETITIONS = 4  # ΑΛΛΑΓΗ: Τρέχει 4 φορές το καθένα
-
-def compile_code():
-    print(f"Compiling {C_FILENAME}...")
-    compile_cmd = ["gcc", "-O2", "-fopenmp", C_FILENAME, "-o", EXECUTABLE]
-    try:
-        subprocess.check_call(compile_cmd)
-        print("Compilation successful!\n")
-    except subprocess.CalledProcessError:
-        print("Error: Compilation failed.")
+def compile_program():
+    print("--- Compilation ---")
+    cmd = f"gcc -O3 -fopenmp {SRC_FILE} -o {EXE_FILE}"
+    if os.system(cmd) != 0:
+        print("Error compiling. Make sure gcc is installed and supports OpenMP.")
         sys.exit(1)
+    print("Compilation Successful.\n")
 
-def run_experiment(n, mode, threads):
-    # Εντολή: ./ex2.3 <n> <mode> <threads>
-    cmd = [f"./{EXECUTABLE}", str(n), mode, str(threads)]
-    if os.name == 'nt':
-        cmd[0] = EXECUTABLE
-    
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        output = result.stdout
-        
-        # Έλεγχος αν πέτυχε η ταξινόμηση
-        if "elements are sorted" not in output:
-            print(f"  [ERROR] Sort failed for N={n}, Mode={mode}")
-            return None
+def run_command(command):
+    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+    return result.stdout
 
-        # Ανάγνωση χρόνου
-        time_match = re.search(r"time of execution:\s*([0-9.]+)", output)
-        
-        if time_match:
-            return float(time_match.group(1))
-        else:
-            return None
+def parse_time(output):
+    match = re.search(r"time of execution:\s*([0-9\.]+)", output)
+    if match:
+        return float(match.group(1))
+    return None
 
-    except Exception as e:
-        print(f"Error: {e}")
-        return None
+def perform_experiments():
+    results = {}
 
-def create_graphs(df):
-    plt.figure(figsize=(10, 6))
     for n in DATA_SIZES:
-        subset = df[df["Size"] == n]
-        if not subset.empty:
-            plt.plot(subset["Threads"], subset["Speedup"], marker='o', linestyle='-', label=f'N={n}')
+        results[n] = {}
+        print(f"=== Running experiments for N = {n} ===")
+        
+        # 1. Serial Execution
+        print(f"  Running Serial...", end="", flush=True)
+        total_serial = 0
+        for r in range(REPETITIONS):
+            out = run_command(f"./{EXE_FILE} {n} serial 1")
+            t = parse_time(out)
+            if t: total_serial += t
+        
+        avg_serial = total_serial / REPETITIONS
+        results[n]["serial_time"] = avg_serial
+        print(f" Done. ({avg_serial:.4f}s)")
+
+        # 2. Parallel Executions
+        results[n]["parallel"] = {}
+        for t in THREAD_COUNTS:
+            print(f"  Running Parallel ({t} threads)...", end="", flush=True)
+            total_par = 0
+            for r in range(REPETITIONS):
+                out = run_command(f"./{EXE_FILE} {n} parallel {t}")
+                t_val = parse_time(out)
+                if t_val: total_par += t_val
+            
+            avg_par = total_par / REPETITIONS
+            speedup = avg_serial / avg_par if avg_par > 0 else 0
+            
+            results[n]["parallel"][t] = {
+                "time": avg_par,
+                "speedup": speedup
+            }
+            print(f" Done. ({avg_par:.4f}s, Speedup: {speedup:.2f}x)")
+        print("-" * 40)
+
+    return results
+
+def plot_graphs(results):
+    # 1. Threads vs Time (Για το μεγαλύτερο N)
+    max_n = max(DATA_SIZES)
+    plt.figure(figsize=(10, 6))
+    times = [results[max_n]["parallel"][t]["time"] for t in THREAD_COUNTS]
+    plt.plot(THREAD_COUNTS, times, marker='o', linewidth=2, label=f"N={max_n}")
+    plt.xlabel('Number of Threads')
+    plt.ylabel('Time (s)')
+    plt.title(f'Execution Time vs Threads (N={max_n})')
+    plt.grid(True)
+    plt.xticks(THREAD_COUNTS)
+    plt.savefig('mergesort_threads_time.png')
+    print("\nGraph saved: mergesort_threads_time.png")
+
+    # 2. Threads vs Speedup (Για το μεγαλύτερο N)
+    plt.figure(figsize=(10, 6))
+    speedups = [results[max_n]["parallel"][t]["speedup"] for t in THREAD_COUNTS]
+    plt.plot(THREAD_COUNTS, speedups, marker='s', color='green', linewidth=2, label='Speedup')
+    plt.plot(THREAD_COUNTS, THREAD_COUNTS, 'k:', label='Ideal', alpha=0.5)
+    plt.xlabel('Number of Threads')
+    plt.ylabel('Speedup')
+    plt.title(f'Speedup vs Threads (N={max_n})')
+    plt.grid(True)
+    plt.legend()
+    plt.xticks(THREAD_COUNTS)
+    plt.savefig('mergesort_threads_speedup.png')
+    print("Graph saved: mergesort_threads_speedup.png")
+
+    # 3. N vs Time (Scalability - ΤΟ ΝΕΟ ΓΡΑΦΗΜΑ)
+    plt.figure(figsize=(10, 6))
     
-    plt.plot(THREADS, THREADS, 'k:', label='Ideal Linear Speedup', alpha=0.5)
-    plt.title("MergeSort Speedup using OpenMP Tasks")
-    plt.xlabel("Number of Threads")
-    plt.ylabel("Speedup (Serial / Parallel)")
+    # Serial Line
+    serial_times = [results[n]["serial_time"] for n in DATA_SIZES]
+    plt.plot(DATA_SIZES, serial_times, marker='o', linestyle='--', color='red', label='Serial (1 Thread)')
+    
+    # Parallel (8 Threads) Line
+    max_threads = max(THREAD_COUNTS)
+    parallel_times = [results[n]["parallel"][max_threads]["time"] for n in DATA_SIZES]
+    plt.plot(DATA_SIZES, parallel_times, marker='s', linewidth=2, color='blue', label=f'Parallel ({max_threads} Threads)')
+    
+    plt.xlabel('Array Size (N)')
+    plt.ylabel('Time (s)')
+    plt.title('Scalability: Time vs Array Size (N)')
     plt.legend()
     plt.grid(True)
-    plt.savefig("graph_mergesort_speedup.png")
-    print("\nGraph saved: graph_mergesort_speedup.png")
-
-def main():
-    compile_code()
-    results_data = []
-
-    print("Starting Experiments (4 Repetitions per test)...")
-    print("=" * 60)
-
-    for n in DATA_SIZES:
-        print(f"\n---> Testing Array Size N = {n}")
-        
-        # 1. SERIAL EXECUTION
-        print(f"  [SERIAL] Running {REPETITIONS} times...")
-        serial_times = []
-        for r in range(REPETITIONS):
-            t = run_experiment(n, "serial", 1)
-            if t is not None: 
-                serial_times.append(t)
-                print(f"    Run {r+1}/{REPETITIONS}: {t:.6f} sec") # Εμφάνιση κάθε τρεξίματος
-        
-        avg_serial = np.mean(serial_times) if serial_times else 0
-        print(f"  >> Average Serial Time: {avg_serial:.6f} sec\n")
-
-        # 2. PARALLEL EXECUTION (για κάθε αριθμό νημάτων)
-        for t in THREADS:
-            print(f"  [PARALLEL] Threads: {t} | Running {REPETITIONS} times...")
-            par_times = []
-            for r in range(REPETITIONS):
-                val = run_experiment(n, "parallel", t)
-                if val is not None: 
-                    par_times.append(val)
-                    print(f"    Run {r+1}/{REPETITIONS}: {val:.6f} sec") # Εμφάνιση κάθε τρεξίματος
-            
-            if par_times:
-                avg_par = np.mean(par_times)
-                speedup = avg_serial / avg_par if avg_par > 0 else 0
-                print(f"  >> Average Parallel Time ({t} thr): {avg_par:.6f} sec | Speedup: {speedup:.2f}x\n")
-                
-                results_data.append({
-                    "Size": n,
-                    "Threads": t,
-                    "Avg Serial": avg_serial,
-                    "Avg Parallel": avg_par,
-                    "Speedup": speedup
-                })
-
-    # Τελικός Πίνακας Αποτελεσμάτων
-    if results_data:
-        df = pd.DataFrame(results_data)
-        
-        print("\n" + "="*30)
-        print(" FINAL AVERAGE RESULTS TABLE ")
-        print("="*30)
-        # Μορφοποίηση για ωραία εκτύπωση
-        print(df.to_string(index=False, formatters={
-            'Avg Serial': '{:.4f}'.format,
-            'Avg Parallel': '{:.4f}'.format,
-            'Speedup': '{:.2f}'.format
-        }))
-        
-        df.to_csv("mergesort_results.csv", index=False)
-        print("\nResults saved to 'mergesort_results.csv'")
-        create_graphs(df)
+    
+    # Format x-axis to show millions (e.g., 10M, 100M)
+    plt.ticklabel_format(style='plain', axis='x') 
+    
+    plt.savefig('mergesort_scalability_N.png')
+    print("Graph saved: mergesort_scalability_N.png (ΤΟ ΝΕΟ ΓΡΑΦΗΜΑ)")
 
 if __name__ == "__main__":
-    main()
+    compile_program()
+    data = perform_experiments()
+    plot_graphs(data)
