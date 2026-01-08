@@ -4,11 +4,10 @@ import matplotlib.pyplot as plt
 import os
 import sys
 
-# --- ΡΥΘΜΙΣΕΙΣ ---
-# Προσθέσαμε ενδιάμεσα βήματα για να βγει ωραία η καμπύλη στο γράφημα N vs Time
+
 DATA_SIZES = [10000000, 20000000, 50000000, 100000000] 
 THREAD_COUNTS = [1, 2, 4, 8]
-REPETITIONS = 4  # 3 επαναλήψεις είναι αρκετές για τόσο βαριά πειράματα
+REPETITIONS = 4  
 
 SRC_FILE = "ex2.3.c"
 EXE_FILE = "mergesort_prog"
