@@ -4,10 +4,10 @@ import matplotlib.pyplot as plt
 import os
 import sys
 
-# --- ΡΥΘΜΙΣΕΙΣ ---
-POLYNOMIAL_DEGREES = [10000, 50000, 100000] # Για τελικά αποτελέσματα βάλε μεγαλύτερα νούμερα
+
+POLYNOMIAL_DEGREES = [10000, 50000, 100000] 
 THREAD_COUNTS = [1, 2, 4, 8]
-REPETITIONS = 4  # Μέσος όρος 4 εκτελέσεων
+REPETITIONS = 4 
 
 # Ονόματα αρχείων
 OPENMP_SRC = "ex2.1.c"

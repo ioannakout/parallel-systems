@@ -4,10 +4,9 @@ import matplotlib.pyplot as plt
 import os
 import sys
 
-# --- ΟΙ ΤΙΜΕΣ N ΠΟΥ ΕΒΑΛΕΣ ---
-# Βάζουμε το 1000, 50000 και 100000 όπως είπες
+
 POLYNOMIAL_DEGREES = [1000, 50000, 100000] 
-THREADS_FOR_PARALLEL = 8  # Θα συγκρίνουμε το Serial με το Parallel (8 threads)
+THREADS_FOR_PARALLEL = 8  
 REPETITIONS = 4
 
 OPENMP_EXE = "openmp_prog"
