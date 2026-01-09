@@ -74,6 +74,7 @@ void create_csr(int* values, int* rows, int* cols, int** array, ll n) {
 }
 
 void create_vector(int* vector, int n) {
+    // Create the vector full of random values
     for (int i = 0; i < n; i++) {
         vector[i] = rand() % MAX_VALUE;
     }
@@ -191,7 +192,7 @@ int main(int argc, char* argv[]) {
     values = realloc(values, sizeof(int) * rows[n]);
     cols = realloc(cols, sizeof(int) * rows[n]);
 
-    // Allocate memory to save the results of the multiplication and time it
+    // Allocate memory to save the results of the CSR multiplication with the vector and time it
     ll* resultCSR = malloc(sizeof(ll) * n);
     startTime = omp_get_wtime();
     for (int i = 0; i < loopCount; i ++)    // Loop over the number given by the user
@@ -199,6 +200,7 @@ int main(int argc, char* argv[]) {
     endTime = omp_get_wtime();
     printf("CSR multiplication with a vector over %d loops took %f seconds\n", loopCount, endTime - startTime);
 
+    // Allocate memory to save the results of the dense array multiplication with the vector and time it
     ll* resultDense = malloc(sizeof(ll) * n);
     startTime = omp_get_wtime();
     for (int i = 0; i < loopCount; i ++)    // Loop over the number given by the user
