@@ -15,14 +15,6 @@ OPENMP_EXE = "openmp_prog"
 PTHREADS_SRC = "ex1.1.c"
 PTHREADS_EXE = "pthreads_prog"
 
-def compile_programs():
-    print("--- Compilation ---")
-    # Compile OpenMP
-    os.system(f"gcc -O3 -fopenmp {OPENMP_SRC} -o {OPENMP_EXE}")
-    # Compile Pthreads
-    os.system(f"gcc -O3 -pthread {PTHREADS_SRC} -o {PTHREADS_EXE}")
-    print("Compilation Successful.\n")
-
 def run_command(command):
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
     return result.stdout
@@ -157,8 +149,11 @@ def plot_omp_only(results):
     print("Graph saved: openmp_analysis.png (Shows Time & Speedup for OMP)")
 
 if __name__ == "__main__":
-    compile_programs()
     data = perform_experiments()
     print_tables(data)
     plot_comparison(data)
     plot_omp_only(data) # Κλήση της νέας συνάρτησης
+
+    print("\n Graphing complete. Starting Scalability Script \n")
+
+    subprocess.run([sys.executable, "scale.py"], check=True)
