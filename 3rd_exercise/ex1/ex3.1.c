@@ -30,9 +30,7 @@ int main(int argc, char* argv[]){
     int *elements = NULL;      // Counts for scatter
     int *index = NULL;
 
-    // Allocate global arrays
-    elements = malloc(comm_sz * sizeof(int));
-    index = malloc(comm_sz * sizeof(int));
+    
 
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
@@ -48,6 +46,9 @@ int main(int argc, char* argv[]){
     int coeffs = n + 1;  // for a n-degree polynomial has n +1 coeffs
     int results = 2 * n + 1;
 
+    // Allocate global arrays
+    elements = malloc(comm_sz * sizeof(int));
+    index = malloc(comm_sz * sizeof(int));
    
     B = malloc(coeffs * sizeof(int));
 
@@ -130,16 +131,28 @@ int main(int argc, char* argv[]){
 
     end_reduce = MPI_Wtime();  // End reduce
 
+double dist_time  = end_dist - start;
+double calc_time  = end_calc - end_dist;
+double reduce_time= end_reduce - end_calc;
+double total_time = end_reduce - start;
+
+double distMax, calcMax, reduceMax, totalMax;
+
+MPI_Reduce(&dist_time, &distMax, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+MPI_Reduce(&calc_time, &calcMax, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+MPI_Reduce(&reduce_time, &reduceMax, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+MPI_Reduce(&total_time, &totalMax, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+
     // Print results
     if (my_rank == 0) {
         printf("Results for n=%d, %d processes\n", n, comm_sz);
-        printf("Scatter time: %f \n", end_dist - start);
-        printf("Calc time: %f \n", end_calc - end_dist);
-        printf("Reduce time: %f \n", end_reduce - end_calc);
-        printf("Total Time: %f \n", end_reduce - start);
+         printf("Scatter time: %f\n", distMax);
+        printf("Calc time: %f\n", calcMax);
+        printf("Reduce time: %f\n", reduceMax);
+        printf("Total time: %f\n", totalMax);
         
         // print for small n
-        if (n < 5) {
+        if (n < 100) {
             printf("Polynomial C: ");
             for(int i=0; i < results; i++) printf("%lld ", C[i]);
             printf("\n");
