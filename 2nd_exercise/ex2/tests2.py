@@ -1,111 +1,138 @@
 import subprocess
 import re
-import csv
 import statistics
+import matplotlib.pyplot as plt
+import sys
 
-# ================= ΡΥΘΜΙΣΕΙΣ ΠΕΙΡΑΜΑΤΩΝ =================
 EXECUTABLE = "./ex2.2"
-OUTPUT_FILE = "results.csv"
-RUNS_PER_EXPERIMENT = 4  # Πόσες φορές θα τρέξει το κάθε πείραμα για μέσο όρο
+RUNS_PER_EXPERIMENT = 3 # Run experiment 3 times to get the average value
 
-# Ορίστε εδώ τις παραμέτρους που θέλετε να δοκιμάσετε
-# Παράδειγμα: Strong Scaling (Σταθερό N, αλλάζουμε Threads)
+# Array size and loops of every multiplication
+N = 10000
+LOOPS = 100
+
+# Parameters sparsity and amount of threads
+SPARSITY_LIST = [0.1, 0.2, 0.4, 0.6, 0.8, 0.9, 0.95, 0.99] 
 THREADS_LIST = [1, 2, 4, 8, 16]
-SIZES_LIST = [1000, 5000]     # N
-SPARSITIES_LIST = [0.6, 0.9]  # 0.6 = 60% zeros
-LOOPS = 1000                  # Επαναλήψεις μέσα στη C (inner loop)
 
 def parse_output(output):
-    """
-    Διαβάζει το κείμενο που τυπώνει η C και εξάγει τους χρόνους.
-    Προσαρμόστε τα regex αν αλλάξετε τα print στη C.
-    """
-    # Regex patterns με βάση τα μηνύματα που μου έστειλες
+    # Get the time from the C output
     csr_pattern = r"CSR multiplication.*?took\s+(\d+\.\d+)\s+seconds"
     dense_pattern = r"Dense multiplication.*?took\s+(\d+\.\d+)\s+seconds"
-    create_pattern = r"CSR creation.*?took\s+(\d+\.\d+)\s+seconds"
-
+    
+    # Check if the outputs are the same
     csr_match = re.search(csr_pattern, output)
     dense_match = re.search(dense_pattern, output)
-    create_match = re.search(create_pattern, output)
-
+    
     return {
-        "csr_time": float(csr_match.group(1)) if csr_match else None,
-        "dense_time": float(dense_match.group(1)) if dense_match else None,
-        "create_time": float(create_match.group(1)) if create_match else None,
+        "csr": float(csr_match.group(1)) if csr_match else None,
+        "dense": float(dense_match.group(1)) if dense_match else None
     }
 
-def run_experiment():
-    results = []
+def main():
+    # Dict that saves speedups for the last comparison
+    all_speedups_data = {} 
+
+    print(f"   Benchmarking for size N={N}...")
+    print(f"   Threads: {THREADS_LIST}")
+    print(f"   Sparsities: {SPARSITY_LIST}\n")
+
+    # Loop over the threads
+    for th in THREADS_LIST:
+        print(f"\nRunning program for '{th}' threads ")
+        
+        # Lists for current thread number
+        current_sparsity = []
+        current_dense = []
+        current_csr = []
+        current_speedup = []
+
+        # Run every sparsity in list for each thread number
+        for sp in SPARSITY_LIST:
+            print(f"   Sparsity: {sp} ... ", end="", flush=True)
+            
+            temp_csr = []
+            temp_dense = []
+
+            # Run each instance three times
+            for r in range(RUNS_PER_EXPERIMENT):
+                # Call that will be executed
+                cmd = [EXECUTABLE, str(N), str(sp), str(LOOPS), str(th)]
+                
+                # Run the program with the according parameters and parse the time
+                try:
+                    res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                    times = parse_output(res.stdout)
+                    if times['csr'] and times['dense']:
+                        temp_csr.append(times['csr'])
+                        temp_dense.append(times['dense'])
+                except Exception as e:
+                    print(f"{e}")
+                    sys.exit(1)
+
+            # Find the csr average, the dense average and then calculate the speedup
+            if temp_csr and temp_dense:
+                avg_csr = statistics.mean(temp_csr)
+                avg_dense = statistics.mean(temp_dense)
+                speedup = avg_dense / avg_csr if avg_csr > 0 else 0
+
+                current_sparsity.append(sp)
+                current_csr.append(avg_csr)
+                current_dense.append(avg_dense)
+                current_speedup.append(speedup)
+                print(f" Speedup (avg_dense / avg_csr): {speedup:.2f}x")
+            else:
+                print("Fail")
+
+        # Save for the final graph
+        all_speedups_data[th] = current_speedup
+
+        plt.figure(figsize=(12, 6))
+        
+        # Subplot 1: Time (s)
+        plt.subplot(1, 2, 1)
+        plt.plot(current_sparsity, current_dense, 'o-', color='red', label='Dense')
+        plt.plot(current_sparsity, current_csr, 's-', color='blue', label='CSR')
+        plt.title(f'Time Comparison ({th} Threads)')
+        plt.xlabel('Sparsity')
+        plt.ylabel('Time (s)')
+        plt.legend()
+        plt.grid(True, linestyle='--', alpha=0.6)
+
+        # Subplot 2: Speedup
+        plt.subplot(1, 2, 2)
+        plt.plot(current_sparsity, current_speedup, '^-', color='green', label='Speedup')
+        plt.title(f'Speedup ({th} Threads)')
+        plt.xlabel('Sparsity')
+        plt.ylabel('Speedup Factor')
+        plt.grid(True, linestyle='--', alpha=0.6)
+        
+        # Annotations
+        for i, val in enumerate(current_speedup):
+             plt.annotate(f"{val:.1f}x", (current_sparsity[i], current_speedup[i]), xytext=(0,10), textcoords='offset points')
+
+        filename = f"benchmark_threads_{th}.png"
+        plt.tight_layout()
+        plt.savefig(filename)
+        plt.close()
+        print(f"   Test saved as: {filename}")
+
+    # Speedup comparison graph
+    print("\n")
+    plt.figure(figsize=(10, 7))
     
-    # Άνοιγμα αρχείου CSV για εγγραφή
-    with open(OUTPUT_FILE, mode='w', newline='') as csv_file:
-        fieldnames = ['Size', 'Sparsity', 'Threads', 'Loops', 'Avg_Create_Time', 'Avg_CSR_Time', 'Avg_Dense_Time', 'Speedup']
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-        writer.writeheader()
+    for th in THREADS_LIST:
+        if th in all_speedups_data:
+            plt.plot(SPARSITY_LIST, all_speedups_data[th], marker='o', label=f'{th} Threads')
 
-        total_experiments = len(SIZES_LIST) * len(SPARSITIES_LIST) * len(THREADS_LIST)
-        current_exp = 0
-
-        for n in SIZES_LIST:
-            for sp in SPARSITIES_LIST:
-                for th in THREADS_LIST:
-                    current_exp += 1
-                    print(f"--- Experiment {current_exp}/{total_experiments}: N={n}, Sparsity={sp}, Threads={th} ---")
-                    
-                    temp_csr = []
-                    temp_dense = []
-                    temp_create = []
-
-                    # Εκτέλεση πολλές φορές για μέσο όρο
-                    for r in range(RUNS_PER_EXPERIMENT):
-                        # Εντολή: ./ex2.2 1000 0.6 1000 4
-                        # ΠΡΟΣΟΧΗ: Βεβαιώσου ότι η σειρά των ορισμάτων ταιριάζει με τη main σου!
-                        cmd = [EXECUTABLE, str(n), str(sp), str(LOOPS), str(th)]
-                        
-                        try:
-                            # Εκτέλεση της εντολής
-                            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-                            output = result.stdout
-                            
-                            parsed = parse_output(output)
-                            
-                            if parsed['csr_time'] is not None: temp_csr.append(parsed['csr_time'])
-                            if parsed['dense_time'] is not None: temp_dense.append(parsed['dense_time'])
-                            if parsed['create_time'] is not None: temp_create.append(parsed['create_time'])
-
-                        except subprocess.CalledProcessError as e:
-                            print(f"Error running command: {e}")
-                        except Exception as e:
-                            print(f"An unexpected error occurred: {e}")
-
-                    # Υπολογισμός Μέσων Όρων
-                    if temp_csr:
-                        avg_csr = statistics.mean(temp_csr)
-                        avg_create = statistics.mean(temp_create)
-                        # Ο Dense μπορεί να μην τρέχει πάντα ή να είναι πολύ αργός
-                        avg_dense = statistics.mean(temp_dense) if temp_dense else 0.0
-                        
-                        # Υπολογισμός Speedup (Dense / CSR)
-                        speedup = avg_dense / avg_csr if avg_csr > 0 and avg_dense > 0 else 0
-
-                        # Εγγραφή στο CSV
-                        writer.writerow({
-                            'Size': n,
-                            'Sparsity': sp,
-                            'Threads': th,
-                            'Loops': LOOPS,
-                            'Avg_Create_Time': f"{avg_create:.6f}",
-                            'Avg_CSR_Time': f"{avg_csr:.6f}",
-                            'Avg_Dense_Time': f"{avg_dense:.6f}",
-                            'Speedup': f"{speedup:.4f}"
-                        })
-                        
-                        print(f"   Avg CSR: {avg_csr:.4f}s | Avg Dense: {avg_dense:.4f}s | Speedup: {speedup:.2f}x")
-                        # Flush για να γράφονται τα δεδομένα αμέσως
-                        csv_file.flush()
-
-    print(f"\nAll experiments finished. Results saved in {OUTPUT_FILE}")
+    plt.title(f'Combined Speedup Comparison (N={N})')
+    plt.xlabel('Sparsity (Percentage of Zeros)')
+    plt.ylabel('Speedup Factor (Dense / CSR)')
+    plt.legend()
+    plt.grid(True, which='both', linestyle='--', alpha=0.7)
+    
+    plt.savefig("combined_speedup.png", dpi=300)
+    print("All tests run succesfully. Created comparison 'combined_speedup.png'")
 
 if __name__ == "__main__":
-    run_experiment()
+    main()

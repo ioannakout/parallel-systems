@@ -46,15 +46,15 @@ tests: ex2.1 ex2.2 ex2.3
 # Run experiments (one by one)
 # ----------------------------
 test1: $(EX1_EXE)
-	@echo "\n🏃 Running experiments in ex1..."
+	@echo "\n Running experiments in ex1..."
 	@cd $(EX1_DIR) && $(PYTHON) tests1.py
 
 test2: $(EX2_EXE)
-	@echo "\n🏃 Running experiments in ex2..."
+	@echo "\n Running experiments in ex2..."
 	@cd $(EX2_DIR) && $(PYTHON) tests2.py
 
 test3: $(EX3_EXE)
-	@echo "\n🏃 Running experiments in ex3..."
+	@echo "\n Running experiments in ex3..."
 	@cd $(EX3_DIR) && $(PYTHON) tests3.py
 
 clean:
