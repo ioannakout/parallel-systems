@@ -1,5 +1,5 @@
-CC = gcc
-CFLAGS = -g -Wall -fopenmp
+CC = mpicc
+CFLAGS = -g -Wall
 
 PYTHON = python3
 
@@ -14,8 +14,8 @@ EX2_EXE = $(EX2_DIR)/ex3.2
 
 all: ex3.1 ex3.2
 
-ex1.1: $(EX1_EXE)
-ex1.2: $(EX2_EXE)
+ex3.1: $(EX1_EXE)
+ex3.2: $(EX2_EXE)
 
 $(EX1_EXE): $(EX1_SRC)
 	$(CC) $(CFLAGS) $< -o $@
@@ -23,9 +23,9 @@ $(EX1_EXE): $(EX1_SRC)
 $(EX2_EXE): $(EX2_SRC)
 	$(CC) $(CFLAGS) $< -o $@
 
-tests: ex3.1 ex3.2 ex3.3
-	$(MAKE) experiment3.1
-	$(MAKE) experiment3.2
+tests: ex3.1 ex3.2
+	$(MAKE) test1
+	$(MAKE) test2
 
 test1: $(EX1_EXE)
 	@echo "\n Running experiments in ex1..."
@@ -38,4 +38,4 @@ test2: $(EX2_EXE)
 clean:
 	rm -f $(EX1_EXE) $(EX2_EXE)
 
-.PHONY: all ex1 ex2 clean
+.PHONY: all tests test1 test2 clean
