@@ -2,167 +2,172 @@ import subprocess
 import re
 import matplotlib.pyplot as plt
 import os
-import sys
+import statistics
 
-# --- CONFIGURATION ---
-EXECUTABLE = "./ex3.2"       # Your specific executable name
-OUTPUT_DIR = "plots"         # Folder to save images
-ITERATIONS = 20              # Fixed number of iterations for stability
+# --- 1. ΡΥΘΜΙΣΕΙΣ ---
+EXECUTABLE = "./ex3.2"       # Το εκτελέσιμο
+MACHINES_FILE = "machines"
+OUTPUT_DIR = "plots"     # Νέος φάκελος για τα αποτελέσματα
+ITERATIONS_INNER = 1         # Επαναλήψεις MESA στο C (το κρατάμε χαμηλά)
+REPEATS = 4                  # Πόσες φορές θα τρέξουμε το κάθε τεστ (Python level)
 
-# --- PARAMETER LISTS AS REQUESTED ---
+# Μεγέθη Πινάκων
 SIZES = [1024, 2048, 4096, 8192]
-PROCS = [1, 2, 4, 8]
-# Generating 0.1 to 0.9 and adding 0.99
-SPARSITIES = [round(x * 0.1, 1) for x in range(1, 10)] + [0.99]
 
-# Create output directory
+# Ποσοστά Μηδενικών
+SPARSITIES = [0.0, 0.4, 0.8, 0.9, 0.99]
+
+# Διεργασίες (Μέχρι 10 PC x 4 Cores = 40, προσαρμοσμένο για να μην κολλάει)
+PROCS = [1, 2, 4, 8, 16, 32, 64]
+
+# --- 2. PRE-CHECK ---
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 
-def run_experiment(procs, size, sparsity, iterations):
-    """
-    Runs the MPI C program and returns a dictionary with the parsed times.
-    """
-    cmd = ["mpiexec", "-n", str(procs), EXECUTABLE, str(size), str(sparsity), str(iterations)]
-    
-    print(f"Running: N={size}, Sparsity={sparsity}, P={procs}...", end=" ", flush=True)
-    
-    try:
-        # Run the command
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output = result.stdout
-        
-        # Regex to parse the specific output format of your C code
-        data = {}
-        patterns = {
-            "csr_build":  r"\(i\)\s+CSR Build Time:\s+([0-9\.]+)",
-            "comm_time":  r"\(ii\)\s+Comm Time.*:\s+([0-9\.]+)",
-            "csr_calc":   r"\(iii\)\s+CSR Parallel Calc:\s+([0-9\.]+)",
-            "csr_total":  r"\(iv\)\s+CSR Total.*:\s+([0-9\.]+)",
-            "dense_calc": r"\(v\)\s+Dense Parallel Calc:\s+([0-9\.]+)"
-        }
-        
-        for key, pattern in patterns.items():
-            match = re.search(pattern, output)
-            if match:
-                data[key] = float(match.group(1))
-            else:
-                data[key] = 0.0
-        
-        print("Done.")
-        return data
-
-    except subprocess.CalledProcessError as e:
-        print(f"\nError! MPI Failed. Output:\n{e.stderr}")
-        return None
-    except FileNotFoundError:
-        print(f"\nError: Executable '{EXECUTABLE}' not found.")
-        sys.exit(1)
-
-# ==========================================
-# 1. CSR vs DENSE Comparison (Varying Sparsity)
-# ==========================================
-def plot_sparsity_impact():
-    # Fixed parameters for this test
-    FIXED_SIZE = 4096
-    FIXED_PROCS = 4
-    
-    print(f"\n--- Experiment 1: Sparsity Impact (N={FIXED_SIZE}, P={FIXED_PROCS}) ---")
-    
+# --- 3. CORE FUNCTION ΜΕ AVERAGE ---
+def run_experiment_avg(procs, size, sparsity, iterations):
     csr_times = []
     dense_times = []
     
-    for s in SPARSITIES:
-        res = run_experiment(FIXED_PROCS, FIXED_SIZE, s, ITERATIONS)
-        if res:
-            csr_times.append(res['csr_total'])
-            dense_times.append(res['dense_calc'])
+    # Τρέχουμε το πείραμα REPEATS φορές
+    for i in range(REPEATS):
+        cmd = ["mpiexec"]
+        if procs > 1 and os.path.exists(MACHINES_FILE):
+            cmd.extend(["-f", MACHINES_FILE])
+        
+        cmd.extend(["-n", str(procs), EXECUTABLE, str(size), str(sparsity), str(iterations)])
+        
+        try:
+            # Timeout για να μην περιμένουμε αιώνια αν κολλήσει
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=120)
+            
+            # Parsing
+            m_csr = re.search(r"CSR Parallel Calc.*?([0-9]+\.[0-9]+)", result.stdout)
+            m_dense = re.search(r"Dense Parallel Calc.*?([0-9]+\.[0-9]+)", result.stdout)
+            
+            if m_csr: csr_times.append(float(m_csr.group(1)))
+            if m_dense: dense_times.append(float(m_dense.group(1)))
+            
+        except subprocess.TimeoutExpired:
+            print(f"      [Run {i+1}/{REPEATS}] Timeout! Skipping...")
+        except Exception as e:
+            # Αν αποτύχει μια φορά, δεν σταματάμε, πάμε στην επόμενη
+            print(f"      [Run {i+1}/{REPEATS}] Error: {e}")
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(SPARSITIES, csr_times, marker='o', label='CSR Total Time', color='blue')
-    plt.plot(SPARSITIES, dense_times, marker='s', label='Dense Calc Time', color='red', linestyle='--')
+    # Υπολογισμός Μέσου Όρου (αν έχουμε αποτελέσματα)
+    avg_csr = statistics.mean(csr_times) if csr_times else None
+    avg_dense = statistics.mean(dense_times) if dense_times else None
     
-    plt.title(f'Impact of Sparsity on Execution Time\n(N={FIXED_SIZE}, Procs={FIXED_PROCS})')
-    plt.xlabel('Sparsity (% Zeros)')
-    plt.ylabel('Time (seconds)')
+    return avg_csr, avg_dense
+
+# --- 4. ΓΡΑΦΗΜΑ 1: SCALABILITY (SPEEDUP) ---
+def plot_scalability():
+    print("\n=== 1. Scalability (Averaged over 4 runs) ===")
+    fixed_sparsity = 0.2  # Βάζουμε 0.2 (πιο πυκνό) για να δούμε SPEEDUP!
+    
+    plt.figure(figsize=(10, 6))
+    
+    for size in SIZES:
+        print(f"Testing N={size}...", end=" ", flush=True)
+        active_procs = []
+        speedups = []
+        base_time = None 
+        
+        for p in PROCS:
+            csr, _ = run_experiment_avg(p, size, fixed_sparsity, ITERATIONS_INNER)
+            
+            if csr:
+                if p == 1: base_time = csr # Κρατάμε τον χρόνο του P=1
+                
+                if base_time:
+                    s = base_time / csr
+                    active_procs.append(p)
+                    speedups.append(s)
+                    # Debug print για να βλέπεις τι γίνεται
+                    print(f" [P={p} -> {s:.2f}x]", end="", flush=True)
+        
+        if speedups:
+            plt.plot(active_procs, speedups, marker='o', label=f'N={size}')
+        print(" Done.")
+
+    # Ιδανική γραμμή
+    plt.plot(PROCS, PROCS, 'k--', alpha=0.3, label='Ideal')
+    
+    plt.title(f'Average Speedup vs Processes\n(Sparsity={fixed_sparsity}, Runs={REPEATS})')
+    plt.xlabel('Processes')
+    plt.ylabel('Speedup')
     plt.grid(True)
     plt.legend()
-    plt.savefig(f"{OUTPUT_DIR}/sparsity_impact.png")
+    plt.savefig(f"{OUTPUT_DIR}/scalability_avg.png")
     plt.close()
 
-# ==========================================
-# 2. SCALABILITY / SPEEDUP (Varying Processes)
-# ==========================================
-def plot_scalability():
-    # Fixed parameters for this test
-    FIXED_SIZE = 8192
-    FIXED_SPARSITY = 0.8
+# --- 5. ΓΡΑΦΗΜΑ 2: CSR vs DENSE ---
+def plot_csr_dense():
+    print("\n=== 2. CSR vs Dense (Averaged) ===")
+    fixed_size = 8192
+    fixed_proc = 4
     
-    print(f"\n--- Experiment 2: Scalability (N={FIXED_SIZE}, S={FIXED_SPARSITY}) ---")
+    csr_res = []
+    dense_res = []
     
-    times = []
-    
-    for p in PROCS:
-        res = run_experiment(p, FIXED_SIZE, FIXED_SPARSITY, ITERATIONS)
-        if res:
-            times.append(res['csr_calc']) # Measuring calculation scaling
-
-    # Calculate Speedup (T_1 / T_p)
-    if times:
-        t_base = times[0]
-        speedup = [t_base / t for t in times]
-        ideal = PROCS # Ideal linear speedup
-
-        plt.figure(figsize=(10, 6))
-        plt.plot(PROCS, speedup, marker='o', label='Actual Speedup', linewidth=2)
-        plt.plot(PROCS, ideal, linestyle='--', color='gray', label='Ideal Speedup')
-        
-        plt.title(f'Parallel Scalability (Strong Scaling)\n(N={FIXED_SIZE}, Sparsity={FIXED_SPARSITY})')
-        plt.xlabel('Number of Processes')
-        plt.ylabel('Speedup')
-        plt.xticks(PROCS)
-        plt.grid(True)
-        plt.legend()
-        plt.savefig(f"{OUTPUT_DIR}/scalability.png")
-        plt.close()
-
-# ==========================================
-# 3. MATRIX SIZE IMPACT (Varying N)
-# ==========================================
-def plot_size_impact():
-    # Fixed parameters
-    FIXED_PROCS = 4
-    FIXED_SPARSITY = 0.9
-    
-    print(f"\n--- Experiment 3: Size Impact (P={FIXED_PROCS}, S={FIXED_SPARSITY}) ---")
-    
-    csr_times = []
-    dense_times = []
-    
-    for n in SIZES:
-        res = run_experiment(FIXED_PROCS, n, FIXED_SPARSITY, ITERATIONS)
-        if res:
-            csr_times.append(res['csr_calc'])
-            dense_times.append(res['dense_calc'])
+    print(f"Testing N={fixed_size}, P={fixed_proc}...", end=" ", flush=True)
+    for s in SPARSITIES:
+        c, d = run_experiment_avg(fixed_proc, fixed_size, s, ITERATIONS_INNER)
+        if c is not None:
+            csr_res.append(c)
+            dense_res.append(d)
+        else:
+            csr_res.append(0)
+            dense_res.append(0)
+    print(" Done.")
 
     plt.figure(figsize=(10, 6))
-    plt.plot(SIZES, csr_times, marker='o', label='CSR Time')
-    plt.plot(SIZES, dense_times, marker='s', label='Dense Time')
+    plt.plot(SPARSITIES, csr_res, 'b-o', label='CSR (Average)')
+    plt.plot(SPARSITIES, dense_res, 'r--s', label='Dense (Average)')
     
-    plt.title(f'Execution Time vs Matrix Size\n(Procs={FIXED_PROCS}, Sparsity={FIXED_SPARSITY})')
-    plt.xlabel('Matrix Dimension (N)')
-    plt.ylabel('Time (seconds)')
+    plt.title(f'CSR vs Dense Execution Time\n(N={fixed_size}, P={fixed_proc})')
+    plt.xlabel('Sparsity')
+    plt.ylabel('Time (sec)')
     plt.grid(True)
     plt.legend()
-    plt.savefig(f"{OUTPUT_DIR}/size_impact.png")
+    plt.savefig(f"{OUTPUT_DIR}/csr_dense_avg.png")
+    plt.close()
+
+# --- 6. ΓΡΑΦΗΜΑ 3: SIZE IMPACT ---
+def plot_size_impact():
+    print("\n=== 3. Size Impact (Averaged) ===")
+    fixed_sparsity = 0.2
+    test_procs = [1, 8, PROCS[-1]] # 1, 8 και Max
+    
+    plt.figure(figsize=(10, 6))
+    
+    for p in test_procs:
+        print(f"Testing P={p}...", end=" ", flush=True)
+        times = []
+        sizes_tested = []
+        
+        for size in SIZES:
+            c, _ = run_experiment_avg(p, size, fixed_sparsity, ITERATIONS_INNER)
+            if c:
+                times.append(c)
+                sizes_tested.append(size)
+        
+        plt.plot(sizes_tested, times, marker='s', label=f'P={p}')
+        print(" Done.")
+
+    plt.title(f'Time vs Matrix Size\n(Sparsity={fixed_sparsity})')
+    plt.xlabel('Matrix Size (N)')
+    plt.ylabel('Time (sec)')
+    plt.grid(True)
+    plt.legend()
+    plt.savefig(f"{OUTPUT_DIR}/size_impact_avg.png")
     plt.close()
 
 if __name__ == "__main__":
-    print(f"Starting Experiments with executable: {EXECUTABLE}")
-    print(f"Output folder: {OUTPUT_DIR}")
-    
-    plot_sparsity_impact()
-    plot_scalability()
-    plot_size_impact()
-    
-    print("\nAll experiments finished. Check the 'plots' directory.")
+    if not os.path.exists(EXECUTABLE):
+        print("Error: Compile first!")
+    else:
+        plot_scalability()
+        plot_csr_dense()
+        plot_size_impact()
+        print(f"\nAll plots saved in {OUTPUT_DIR}/")

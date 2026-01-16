@@ -8,8 +8,9 @@ OMP_EXEC = "./ex2.1"
 
 # Προτεινόμενες τιμές για να δεις αποτελέσματα
 DEGREES = [1000, 10000, 100000] 
-PROCESSES = [1, 2, 4, 8]
+PROCESSES = [1, 2, 4, 8, 16, 32, 64]
 REPETITIONS = 4
+MACHINES_FILE = "machines"
 
 results = {}
 
@@ -27,7 +28,7 @@ def parse_time(output, regex):
         return float(match.group(1))
     return None
 
-print("=== ΕΝΑΡΞΗ ΠΕΙΡΑΜΑΤΩΝ (Διορθωμένο) ===")
+print("=== ΕΝΑΡΞΗ ΠΕΙΡΑΜΑΤΩΝ ===")
 
 for n in DEGREES:
     print(f"\n---> Τρέχοντας για N = {n}...")
@@ -38,7 +39,7 @@ for n in DEGREES:
     for p in PROCESSES:
         times = []
         for r in range(REPETITIONS):
-            out = run_command(["mpiexec", "-n", str(p), MPI_EXEC, str(n)])
+            out = run_command(["mpiexec", "-f", MACHINES_FILE, "-n", str(p), MPI_EXEC, str(n)])
             t = parse_time(out, r"Total time:\s*([0-9\.]+)")
             if t is not None: times.append(t)
         
