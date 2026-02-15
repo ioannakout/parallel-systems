@@ -5,122 +5,157 @@ import matplotlib.pyplot as plt
 import os
 import numpy as np
 import sys
+import time
 
-# --- ΡΥΘΜΙΣΕΙΣ (ΠΡΟΣΑΡΜΟΣΜΕΝΕΣ ΓΙΑ MAKEFILE) ---
-# Το Makefile έχει ήδη φτιάξει το εκτελέσιμο στο ex1/poly_simd
-# Οπότε εδώ απλά δείχνουμε πού είναι.
+# --- ΡΥΘΜΙΣΕΙΣ ---
 EXECUTABLE = "ex1/poly_simd" 
 FOLDER = "ex1/"
 
-# Παράμετροι Πειράματος
-N_VALUES = [10000, 20000, 40000, 80000] 
-REPEAT = 3
+# --- ΠΑΡΑΜΕΤΡΟΙ STRESS TEST ---
+# Αυξάνουμε τα N για να ζορίσουμε την CPU.
+# Προσοχή: Το N=128000 μπορεί να πάρει 20-30 δευτερόλεπτα στο Serial.
+N_VALUES = [32000, 64000, 96000, 128000] 
+REPEAT = 5        # Περισσότερες επαναλήψεις για ακρίβεια
+WARMUP_N = 32000  # Μέγεθος για προθέρμανση
 
-def run_experiment(n):
-    serial_times = []
-    simd_times = []
-
-    print(f"Running for N={n} ({REPEAT} times)...")
-    
-    for i in range(REPEAT):
-        try:
-            # Εκτέλεση του C προγράμματος
-            result = subprocess.run(
-                [EXECUTABLE, str(n)], 
-                capture_output=True, 
-                text=True, 
-                timeout=120 # Timeout ασφαλείας
-            )
-            output = result.stdout
-            
-            # Regex για να διαβάσουμε τους χρόνους από το output της C
-            # Ψάχνουμε γραμμές όπως "Serial execution time: 0.123456"
-            s_match = re.search(r"Serial execution time:\s+([0-9.,]+)", output)
-            v_match = re.search(r"SIMD execution time:\s+([0-9.,]+)", output)
-
-            if s_match and v_match:
-                s_val = float(s_match.group(1).replace(',', '.'))
-                v_val = float(v_match.group(1).replace(',', '.'))
-                serial_times.append(s_val)
-                simd_times.append(v_val)
-            else:
-                print(f"   ⚠️ Run {i+1}: Could not parse output.")
-
-        except subprocess.TimeoutExpired:
-            print(f"   ⏳ Run {i+1}: TIMEOUT! (Skipping)")
+def run_process(n, run_index=0, is_warmup=False):
+    """Εκτελεί το πρόγραμμα C και επιστρέφει τους χρόνους."""
+    try:
+        
+        start_time = time.time()
+        result = subprocess.run(
+            [EXECUTABLE, str(n)], 
+            capture_output=True, 
+            text=True, 
+            timeout=180 # Αυξημένο timeout για μεγάλα N
+        )
+        
+        if result.returncode != 0:
+            print(f"❌ Error (Return code {result.returncode})")
             return None, None
 
-    if not serial_times: return None, None
+        output = result.stdout
+        
+        # Regex
+        s_match = re.search(r"Serial execution time:\s+([0-9.,]+)", output, re.IGNORECASE)
+        v_match = re.search(r"SIMD execution time:\s+([0-9.,]+)", output, re.IGNORECASE)
 
-    avg_serial = np.mean(serial_times)
-    avg_simd = np.mean(simd_times)
-    
-    print(f"   => Avg: Serial={avg_serial:.4f}s | SIMD={avg_simd:.4f}s")
-    return avg_serial, avg_simd
+        if s_match and v_match:
+            s_val = float(s_match.group(1).replace(',', '.'))
+            v_val = float(v_match.group(1).replace(',', '.'))
+            return s_val, v_val
+        else:
+            print("⚠️ Parse Error")
+            return None, None
+
+    except subprocess.TimeoutExpired:
+        print("⏳ TIMEOUT")
+        return None, None
+    except Exception as e:
+        print(f"❌ Exception: {e}")
+        return None, None
 
 def main():
-        
+    if not os.path.exists(EXECUTABLE):
+        print(f"Error: Executable {EXECUTABLE} not found. Run 'make' first.")
+        return
+
+    # --- WARMUP PHASE ---
+    print("\n🔥 Starting CPU Warm-up phase...")
+    run_process(WARMUP_N, is_warmup=True)
+    print("🔥 Warm-up complete. Starting benchmarks.\n")
+
     results = {
         "N": [],
-        "Serial (s)": [],
-        "SIMD (s)": [],
-        "Speedup": []
+        "Serial_Mean": [], "Serial_Std": [],
+        "SIMD_Mean": [], "SIMD_Std": [],
+        "Speedup_Mean": []
     }
 
-    print(f"{'N':<10} {'Serial (s)':<15} {'SIMD (s)':<15} {'Speedup (x)':<15}")
-    print("-" * 55)
+    # Print Table Header
+    print(f"{'N':<10} {'Serial (avg ± std)':<25} {'SIMD (avg ± std)':<25} {'Speedup':<10}")
+    print("-" * 75)
 
     for n in N_VALUES:
-        s_time, v_time = run_experiment(n)
+        serial_runs = []
+        simd_runs = []
         
-        if s_time is None: continue 
+        for i in range(REPEAT):
+            s, v = run_process(n, i)
+            if s is not None and v is not None:
+                serial_runs.append(s)
+                simd_runs.append(v)
+        
+        if not serial_runs: continue
 
-        speedup = s_time / v_time if v_time > 0 else 0
+        # Υπολογισμοί Στατιστικών
+        s_mean = np.mean(serial_runs)
+        s_std = np.std(serial_runs)
+        v_mean = np.mean(simd_runs)
+        v_std = np.std(simd_runs)
+        
+        # Speedup based on means
+        speedup = s_mean / v_mean if v_mean > 0 else 0
 
-        print(f"{n:<10} {s_time:<15.4f} {v_time:<15.4f} {speedup:<15.2f}")
+        # Print Row
+        s_str = f"{s_mean:.4f} ± {s_std:.4f}"
+        v_str = f"{v_mean:.4f} ± {v_std:.4f}"
+        print(f"{n:<10} {s_str:<25} {v_str:<25} {speedup:<10.2f}")
 
+        # Save Data
         results["N"].append(n)
-        results["Serial (s)"].append(s_time)
-        results["SIMD (s)"].append(v_time)
-        results["Speedup"].append(speedup)
+        results["Serial_Mean"].append(s_mean)
+        results["Serial_Std"].append(s_std)
+        results["SIMD_Mean"].append(v_mean)
+        results["SIMD_Std"].append(v_std)
+        results["Speedup_Mean"].append(speedup)
 
-    # --- ΑΠΟΘΗΚΕΥΣΗ ΣΕ CSV ---
+    # --- SAVE TO CSV ---
     df = pd.DataFrame(results)
-    df.to_csv(FOLDER+"simd_results.csv", index=False)
-    print("\nResults saved to 'ex1/simd_results.csv'.")
+    csv_path = FOLDER + "simd_results.csv"
+    df.to_csv(csv_path, index=False)
+    print(f"\nResults saved to '{csv_path}'.")
 
-    # --- ΓΡΑΦΗΜΑ 1: ΧΡΟΝΟΙ ΕΚΤΕΛΕΣΗΣ ---
-    plt.figure(figsize=(10, 6))
-    plt.plot(df["N"], df["Serial (s)"], marker='o', label='Serial', linestyle='-', color='red')
-    plt.plot(df["N"], df["SIMD (s)"], marker='s', label='SIMD (AVX2)', linestyle='-', color='blue')
+    # --- PLOTTING ---
     
-    plt.title('Execution Time: Serial vs SIMD')
+    # 1. Execution Time with Error Bars
+    plt.figure(figsize=(10, 6))
+    
+    # Serial Plot
+    plt.errorbar(df["N"], df["Serial_Mean"], yerr=df["Serial_Std"], 
+                 fmt='-o', color='red', ecolor='darkred', capsize=5, label='Serial')
+    
+    # SIMD Plot
+    plt.errorbar(df["N"], df["SIMD_Mean"], yerr=df["SIMD_Std"], 
+                 fmt='-s', color='blue', ecolor='darkblue', capsize=5, label='SIMD (AVX2)')
+
+    plt.title('Execution Time: Serial vs SIMD (with Std Dev)')
     plt.xlabel('Polynomial Degree (N)')
     plt.ylabel('Time (Seconds)')
     plt.legend()
     plt.grid(True, alpha=0.3)
-    plt.savefig(FOLDER+"simd_time_comparison.png")
-    print("Graph saved: 'ex1/simd_time_comparison.png'")
+    plt.savefig(FOLDER + "simd_time_comparison.png")
+    print(f"Graph saved: '{FOLDER}simd_time_comparison.png'")
 
-    # --- ΓΡΑΦΗΜΑ 2: SPEEDUP ---
+    # 2. Speedup Plot
     plt.figure(figsize=(10, 6))
-    plt.plot(df["N"], df["Speedup"], marker='o', color='green', linewidth=2)
+    plt.plot(df["N"], df["Speedup_Mean"], marker='o', color='green', linewidth=2, label='Measured Speedup')
     
-    # Προσθήκη οριζόντιας γραμμής για το θεωρητικό μέγιστο (περίπου 4x για integers αν όλα ήταν τέλεια)
     plt.axhline(y=4, color='gray', linestyle='--', alpha=0.5, label='Theoretical Max (4x)')
     
     plt.title('SIMD Speedup vs Problem Size')
     plt.xlabel('Polynomial Degree (N)')
-    plt.ylabel('Speedup Factor (Serial / SIMD)')
-    plt.ylim(0, 5) # Το όριο στον άξονα Υ
+    plt.ylabel('Speedup Factor')
+    plt.ylim(0, 5)
     plt.legend()
     plt.grid(True, alpha=0.3)
     
-    for i, txt in enumerate(df["Speedup"]):
-        plt.annotate(f"{txt:.2f}x", (df["N"][i], df["Speedup"][i]), textcoords="offset points", xytext=(0,10), ha='center')
+    for i, txt in enumerate(df["Speedup_Mean"]):
+        plt.annotate(f"{txt:.2f}x", (df["N"][i], df["Speedup_Mean"][i]), 
+                     textcoords="offset points", xytext=(0,10), ha='center')
 
-    plt.savefig(FOLDER+"simd_speedup.png")
-    print("Graph saved: 'ex1/simd_speedup.png'")
+    plt.savefig(FOLDER + "simd_speedup.png")
+    print(f"Graph saved: '{FOLDER}simd_speedup.png'")
 
 if __name__ == "__main__":
     main()
