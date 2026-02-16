@@ -7,36 +7,36 @@ import numpy as np
 import sys
 import time
 
-# --- ΡΥΘΜΙΣΕΙΣ ---
+# What to run and where to store graphs
 EXECUTABLE = "ex1/poly_simd" 
 FOLDER = "ex1/"
 
-# --- ΠΑΡΑΜΕΤΡΟΙ STRESS TEST ---
-# Αυξάνουμε τα N για να ζορίσουμε την CPU.
-# Προσοχή: Το N=128000 μπορεί να πάρει 20-30 δευτερόλεπτα στο Serial.
-N_VALUES = [32000, 64000, 96000, 128000] 
-REPEAT = 5        # Περισσότερες επαναλήψεις για ακρίβεια
-WARMUP_N = 32000  # Μέγεθος για προθέρμανση
+# Parameters for the different testing
+N_VALUES = [32000, 64000, 96000, 128000]    # Number of values
+REPEAT = 5                                  # Amount of times each test is run
+WARMUP_N = 32000                            # Size of to warmup
 
+# Function that runs the code and returns the timers
 def run_process(n, run_index=0, is_warmup=False):
-    """Εκτελεί το πρόγραμμα C και επιστρέφει τους χρόνους."""
     try:
-        
+        # Start timer and run the command to execute the code
         start_time = time.time()
         result = subprocess.run(
             [EXECUTABLE, str(n)], 
             capture_output=True, 
             text=True, 
-            timeout=180 # Αυξημένο timeout για μεγάλα N
+            timeout=180
         )
         
+        # Check if the code run
         if result.returncode != 0:
-            print(f"❌ Error (Return code {result.returncode})")
+            print(f"Error (Return code {result.returncode})")
             return None, None
 
+        # Save the result
         output = result.stdout
         
-        # Regex
+        # Extract the times of each algorithm
         s_match = re.search(r"Serial execution time:\s+([0-9.,]+)", output, re.IGNORECASE)
         v_match = re.search(r"SIMD execution time:\s+([0-9.,]+)", output, re.IGNORECASE)
 
@@ -45,26 +45,29 @@ def run_process(n, run_index=0, is_warmup=False):
             v_val = float(v_match.group(1).replace(',', '.'))
             return s_val, v_val
         else:
-            print("⚠️ Parse Error")
+            print("Parse Error")
             return None, None
 
     except subprocess.TimeoutExpired:
-        print("⏳ TIMEOUT")
+        print("TIMEOUT")
         return None, None
     except Exception as e:
-        print(f"❌ Exception: {e}")
+        print(f"Exception: {e}")
         return None, None
 
 def main():
+
+    # Check the executable exists
     if not os.path.exists(EXECUTABLE):
         print(f"Error: Executable {EXECUTABLE} not found. Run 'make' first.")
         return
 
-    # --- WARMUP PHASE ---
-    print("\n🔥 Starting CPU Warm-up phase...")
+    # Warm it up
+    print("\nStarting CPU Warm-up phase...")
     run_process(WARMUP_N, is_warmup=True)
-    print("🔥 Warm-up complete. Starting benchmarks.\n")
+    print("Warm-up complete. Starting benchmarks.\n")
 
+    # Sav ethe results
     results = {
         "N": [],
         "Serial_Mean": [], "Serial_Std": [],
@@ -72,15 +75,19 @@ def main():
         "Speedup_Mean": []
     }
 
-    # Print Table Header
+    # Print table head
     print(f"{'N':<10} {'Serial (avg ± std)':<25} {'SIMD (avg ± std)':<25} {'Speedup':<10}")
     print("-" * 75)
 
+    # Loop over the values
     for n in N_VALUES:
         serial_runs = []
         simd_runs = []
         
+        # Run it REPEAT times
         for i in range(REPEAT):
+
+            # Run the process and save the results
             s, v = run_process(n, i)
             if s is not None and v is not None:
                 serial_runs.append(s)
@@ -88,7 +95,7 @@ def main():
         
         if not serial_runs: continue
 
-        # Υπολογισμοί Στατιστικών
+        # Calculate statistics
         s_mean = np.mean(serial_runs)
         s_std = np.std(serial_runs)
         v_mean = np.mean(simd_runs)
@@ -110,22 +117,20 @@ def main():
         results["SIMD_Std"].append(v_std)
         results["Speedup_Mean"].append(speedup)
 
-    # --- SAVE TO CSV ---
+    # Save to the CSV
     df = pd.DataFrame(results)
     csv_path = FOLDER + "simd_results.csv"
     df.to_csv(csv_path, index=False)
     print(f"\nResults saved to '{csv_path}'.")
 
-    # --- PLOTTING ---
-    
-    # 1. Execution Time with Error Bars
+    # Execution time with error bars
     plt.figure(figsize=(10, 6))
     
-    # Serial Plot
+    # Serial plot
     plt.errorbar(df["N"], df["Serial_Mean"], yerr=df["Serial_Std"], 
                  fmt='-o', color='red', ecolor='darkred', capsize=5, label='Serial')
     
-    # SIMD Plot
+    # SIMD plot
     plt.errorbar(df["N"], df["SIMD_Mean"], yerr=df["SIMD_Std"], 
                  fmt='-s', color='blue', ecolor='darkblue', capsize=5, label='SIMD (AVX2)')
 
@@ -137,7 +142,7 @@ def main():
     plt.savefig(FOLDER + "simd_time_comparison.png")
     print(f"Graph saved: '{FOLDER}simd_time_comparison.png'")
 
-    # 2. Speedup Plot
+    # Speedup plot
     plt.figure(figsize=(10, 6))
     plt.plot(df["N"], df["Speedup_Mean"], marker='o', color='green', linewidth=2, label='Measured Speedup')
     
