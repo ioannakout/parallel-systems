@@ -5,22 +5,21 @@ SRC = $(SRC_DIR)/4.1.c
 EXEC = $(SRC_DIR)/poly_simd
 SCRIPT = $(SRC_DIR)/test.py
 
-# Default target: Κάνει compile και τρέχει το benchmark
+# Another way to run the benchmark
 all: benchmark
 
-# Compile: Δημιουργεί το εκτελέσιμο μέσα στον φάκελο ex1
+# Code that compiles the .c file
 compile: $(SRC)
 	@echo "--> Compiling C code..."
 	$(CC) $(CFLAGS) $(SRC) -o $(EXEC)
 	@echo "✅ Compilation successful: $(EXEC)"
 
-# Benchmark: Τρέχει το python script
-# Περνάμε το όνομα του εκτελέσιμου ως argument στο script για να ξέρει πού να το βρει
+# Compile the .c file and run the python script
 benchmark: compile
 	@echo "--> Running Python Benchmark..."
 	python3 $(SCRIPT)
 
-# Clean: Καθαρίζει τα παραγόμενα αρχεία
+# Clean
 clean:
 	rm -f $(EXEC) *.csv *.png
 	@echo "✅ Cleaned up executable and results."

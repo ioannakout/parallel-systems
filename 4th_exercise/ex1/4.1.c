@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include <immintrin.h> // AVX2
+#include <immintrin.h>
 
 // Global variables
 int *pol1, *pol2;
@@ -32,9 +32,7 @@ void random_pol(int degree, int *pol) {
     }
 }
 
-// --- ΣΕΙΡΙΑΚΟΣ ΑΛΓΟΡΙΘΜΟΣ ---
-// Απενεργοποιούμε το auto-vectorization του GCC για να κάνουμε δίκαιη σύγκριση.
-// Αν δεν το βάλουμε αυτό, ο GCC κάνει μόνος του SIMD και βγάζει ίδια ταχύτητα.
+// Serial algorithm
 __attribute__((optimize("no-tree-vectorize")))
 void serial_execution() {
     for (int i = 0; i <= n; i++) {
